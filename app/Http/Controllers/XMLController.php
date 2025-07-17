@@ -154,11 +154,10 @@ class XMLController extends Controller
             $rows[] = array_fill(0, 1, '');
             $rows[] = array_fill(0, 1, '');
             $rows[] = array_fill(0, 1, '');
-            $rows[] = array_fill(0, 1, '');
             $allRows = array_merge($allRows, $rows);
         }
 
-        Excel::store(new FacturasExport($headers, $allRows), 'facturas.xlsx', 'public');
+        Excel::store(new FacturasExport($headers, $allRows), 'facturas/facturas.xlsx', 'local');
 
         return response()->json([
             'success' => true,
