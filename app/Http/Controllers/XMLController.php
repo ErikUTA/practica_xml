@@ -13,156 +13,152 @@ class XMLController extends Controller
 {
     public function convertirFacturaXmlACsv(Request $request)
     {
-        $request->validate([
-            'xml_files' => 'required|array',
-            'xml_files.*' => 'file|mimes:xml',
-        ]);
+        \DB::beginTransaction();
+        try {
+            $userId = $request->get('user_id');
+            $user = User::find($userId);
+            if(!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Es necesario estar registrado para utilizar el interprete XML.'
+                ], 500);
+            }
 
-        $headers = [
-            'Certificado', 'Fecha', 'Folio', 'FormaPago', 'LugarExpedicion',
-            'MetodoPago', 'Moneda', 'NoCertificado', 'Sello', 'Serie',
-            'SubTotal', 'TipoDeComprobante', 'Total', 'Version',
-            'Nombre', 'RegimenFiscal', 'Rfc', 'Nombre', 'Rfc', 'UsoCFDI',
-            'Cantidad', 'ClaveProdServ', 'ClaveUnidad', 'Descripcion',
-            'Base', 'Importe', 'Impuesto', 'TasaOCuota', 'TipoFactor',
-            'TotalImpuestosTrasladados', 'Importe', 'Impuesto', 'TasaOCuota', 'TipoFactor',
-            'FechaTimbrado', 'NoCertificadoSAT', 'RfcProvCertif', 'SelloCFD', 'SelloSAT', 'UUID', 'Version',
-        ];
+            $request->validate([
+                'xml_files' => 'required|array',
+                'xml_files.*' => 'file|mimes:xml',
+            ]);
 
-        $headers = array_unique($headers);
-
-        $allRows = [];
-
-        foreach ($request->file('xml_files') as $file) {
-            $xml = simplexml_load_file($file->getRealPath());
-            if (!$xml) continue;
-
-            $namespaces = $xml->getNamespaces(true);
-            $cfdi = $xml->children($namespaces['cfdi']);
-            $emisor = $cfdi->Emisor ?? null;
-            $receptor = $cfdi->Receptor ?? null;
-            $impuestos = $cfdi->Impuestos ?? null;
-            $complemento = $cfdi->Complemento ?? null;
-            $conceptos = $cfdi->Conceptos ?? null;
+            $headers = [
+                'Certificado', 'Fecha', 'Folio', 'FormaPago', 'LugarExpedicion',
+                'MetodoPago', 'Moneda', 'NoCertificado', 'Sello', 'Serie',
+                'SubTotal', 'TipoDeComprobante', 'Total', 'Version',
+                'Nombre_Emisor', 'RegimenFiscal_Emisor', 'Rfc_Emisor',
+                'Nombre_Receptor', 'Rfc_Receptor', 'UsoCFDI',
+                'Cantidad', 'ClaveProdServ', 'ClaveUnidad', 'Descripcion',
+                'Base', 'Importe_Concepto', 'Impuesto_Concepto', 'TasaOCuota_Concepto', 'TipoFactor_Concepto',
+                'TotalImpuestosTrasladados',
+                'Importe_Global', 'Impuesto_Global', 'TasaOCuota_Global', 'TipoFactor_Global',
+                'FechaTimbrado', 'NoCertificadoSAT', 'RfcProvCertif', 'SelloCFD', 'SelloSAT', 'UUID', 'Version_TFD',
+            ];
 
             $rows = [];
 
-            // Sección: Comprobante
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = ['Archivo: ' . $file->getClientOriginalName()];
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = ['Comprobante'];
-            $rows[] = [
-                'Certificado', 'Fecha', 'Folio', 'FormaPago', 'LugarExpedicion',
-                'MetodoPago', 'Moneda', 'NoCertificado', 'Sello', 'Serie',
-                'SubTotal', 'TipoDeComprobante', 'Total', 'Version'
-            ];
-            $rows[] = [
-                (string) $xml['Certificado'], (string) $xml['Fecha'], (string) $xml['Folio'],
-                (string) $xml['FormaPago'], (string) $xml['LugarExpedicion'], (string) $xml['MetodoPago'],
-                (string) $xml['Moneda'], (string) $xml['NoCertificado'], (string) $xml['Sello'],
-                (string) $xml['Serie'], (string) $xml['SubTotal'], (string) $xml['TipoDeComprobante'],
-                (string) $xml['Total'], (string) $xml['Version']
-            ];
+            foreach ($request->file('xml_files') as $file) {
+                $xml = simplexml_load_file($file->getRealPath());
+                if (!$xml) continue;
 
-            // Sección: Emisor
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = ['Emisor'];
-            $rows[] = ['Nombre', 'RegimenFiscal', 'Rfc'];
-            $attrsEmisor = $emisor->attributes();
-            $rows[] = [
-                (string) $attrsEmisor['Nombre'], (string) $attrsEmisor['RegimenFiscal'],
-                (string) $attrsEmisor['Rfc']
-            ];
+                $namespaces = $xml->getNamespaces(true);
+                $cfdi = $xml->children($namespaces['cfdi']);
+                $emisor = $cfdi->Emisor ?? null;
+                $receptor = $cfdi->Receptor ?? null;
+                $impuestos = $cfdi->Impuestos ?? null;
+                $complemento = $cfdi->Complemento ?? null;
+                $conceptos = $cfdi->Conceptos ?? null;
 
-            // Sección: Receptor
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = ['Receptor'];
-            $rows[] = ['Nombre', 'Rfc', 'UsoCFDI'];
-            $attrsReceptor = $receptor->attributes();
-            $rows[] = [
-                (string) $attrsReceptor['Nombre'], (string) $attrsReceptor['Rfc'],
-                (string) $attrsReceptor['UsoCFDI']
-            ];
+                $row = [];
 
-            // Sección: Conceptos
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = ['Conceptos'];
-            $rows[] = ['Cantidad', 'ClaveProdServ', 'ClaveUnidad', 'Descripcion'];
+                $row[] = (string) $xml['Certificado'];
+                $row[] = (string) $xml['Fecha'];
+                $row[] = (string) $xml['Folio'];
+                $row[] = (string) $xml['FormaPago'];
+                $row[] = (string) $xml['LugarExpedicion'];
+                $row[] = (string) $xml['MetodoPago'];
+                $row[] = (string) $xml['Moneda'];
+                $row[] = (string) $xml['NoCertificado'];
+                $row[] = (string) $xml['Sello'];
+                $row[] = (string) $xml['Serie'];
+                $row[] = (string) $xml['SubTotal'];
+                $row[] = (string) $xml['TipoDeComprobante'];
+                $row[] = (string) $xml['Total'];
+                $row[] = (string) $xml['Version'];
 
-            foreach ($conceptos->children($namespaces['cfdi']) as $concepto) {
-                $attrsConcepto = $concepto->attributes();
-                $rows[] = [
-                    (string) $attrsConcepto['Cantidad'], (string) $attrsConcepto['ClaveProdServ'],
-                    (string) $attrsConcepto['ClaveUnidad'], (string) $attrsConcepto['Descripcion']
-                ];
+                $attrsEmisor = $emisor->attributes();
+                $row[] = (string) $attrsEmisor['Nombre'];
+                $row[] = (string) $attrsEmisor['RegimenFiscal'];
+                $row[] = (string) $attrsEmisor['Rfc'];
 
-                $impuestosNode = $concepto->children($namespaces['cfdi'])->Impuestos ?? null;
-                if ($impuestosNode) {
-                    $traslados = $impuestosNode->children($namespaces['cfdi'])->Traslados ?? null;
-                    if ($traslados) {
-                        foreach ($traslados->children($namespaces['cfdi']) as $traslado) {
-                            $attrsTraslado = $traslado->attributes();
-                            $rows[] = array_fill(0, 1, '');
-                            $rows[] = ['Concepto Traslado'];
-                            $rows[] = ['Base', 'Importe', 'Impuesto', 'TasaOCuota', 'TipoFactor'];
-                            $rows[] = [
-                                (string) $attrsTraslado['Base'],
-                                (string) $attrsTraslado['Importe'],
-                                (string) $attrsTraslado['Impuesto'],
-                                (string) $attrsTraslado['TasaOCuota'],
-                                (string) $attrsTraslado['TipoFactor'],
-                            ];
-                        }
+                $attrsReceptor = $receptor->attributes();
+                $row[] = (string) $attrsReceptor['Nombre'];
+                $row[] = (string) $attrsReceptor['Rfc'];
+                $row[] = (string) $attrsReceptor['UsoCFDI'];
+
+                $concepto = $conceptos->children($namespaces['cfdi']) ?? null;
+                if ($concepto) {
+                    $attrsConcepto = $concepto->attributes();
+                    $row[] = (string) $attrsConcepto['Cantidad'];
+                    $row[] = (string) $attrsConcepto['ClaveProdServ'];
+                    $row[] = (string) $attrsConcepto['ClaveUnidad'];
+                    $row[] = (string) $attrsConcepto['Descripcion'];
+
+                    $traslado = $concepto->children($namespaces['cfdi'])->Impuestos->Traslados->children($namespaces['cfdi']) ?? null;
+                    if ($traslado) {
+                        $a = $traslado->attributes();
+                        $row[] = (string) $a['Base'];
+                        $row[] = (string) $a['Importe'];
+                        $row[] = (string) $a['Impuesto'];
+                        $row[] = (string) $a['TasaOCuota'];
+                        $row[] = (string) $a['TipoFactor'];
+                    } else {
+                        $row = array_merge($row, ['', '', '', '', '']);
                     }
+                } else {
+                    $row = array_merge($row, ['', '', '', '', '', '', '', '', '', '']);
                 }
+
+                $attrsImp = $impuestos->attributes();
+                $row[] = (string) $attrsImp['TotalImpuestosTrasladados'];
+
+                $trasladoGlobal = $impuestos->Traslados->children($namespaces['cfdi']) ?? null;
+
+                if ($trasladoGlobal) {
+                    $a = $trasladoGlobal->attributes();
+                    $row[] = (string) $a['Importe'];
+                    $row[] = (string) $a['Impuesto'];
+                    $row[] = (string) $a['TasaOCuota'];
+                    $row[] = (string) $a['TipoFactor'];
+                } else {
+                    $row = array_merge($row, ['', '', '', '']);
+                }
+
+                $timbre = $complemento->children($namespaces['tfd'] ?? [])->TimbreFiscalDigital ?? null;
+
+                if ($timbre) {
+                    $a = $timbre->attributes();
+                    $row[] = (string) $a['FechaTimbrado'];
+                    $row[] = (string) $a['NoCertificadoSAT'];
+                    $row[] = (string) $a['RfcProvCertif'];
+                    $row[] = (string) $a['SelloCFD'];
+                    $row[] = (string) $a['SelloSAT'];
+                    $row[] = (string) $a['UUID'];
+                    $row[] = (string) $a['Version'];
+                } else {
+                    $row = array_merge($row, ['', '', '', '', '', '', '']);
+                }
+
+                $rows[] = $row;
             }
 
-            // Sección: Impuestos
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = ['Impuestos'];
-            $rows[] = ['TotalImpuestosTrasladados'];
-            $attrsImpuesto = $impuestos->attributes();
-            $rows[] = [(string) $attrsImpuesto['TotalImpuestosTrasladados']];
+            Excel::store(new InvoicesExport($headers, array_merge([$headers], $rows)), 'facturas/facturas.xlsx', 'local');
 
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = ['Impuesto Traslados'];
-            $rows[] = ['Importe', 'Impuesto', 'TasaOCuota', 'TipoFactor'];
-            foreach ($impuestos->children($namespaces['cfdi'])->children($namespaces['cfdi']) as $t) {
-                $attrs = $t->attributes();
-                $rows[] = [
-                    (string) $attrs['Importe'], (string) $attrs['Impuesto'],
-                    (string) $attrs['TasaOCuota'], (string) $attrs['TipoFactor']
-                ];
-            }
-
-            // Sección: Timbre Fiscal Digital
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = ['Complemento Timbre Fiscal Digital'];
-            $rows[] = ['FechaTimbrado', 'NoCertificadoSAT', 'RfcProvCertif', 'SelloCFD', 'SelloSAT', 'UUID', 'Version'];
-            $timbres = $complemento->children($namespaces['tfd'] ?? []);
-            foreach ($timbres as $timbre) {
-                $attrs = $timbre->attributes();
-                $rows[] = [
-                    (string) $attrs['FechaTimbrado'], (string) $attrs['NoCertificadoSAT'],
-                    (string) $attrs['RfcProvCertif'], (string) $attrs['SelloCFD'],
-                    (string) $attrs['SelloSAT'], (string) $attrs['UUID'], (string) $attrs['Version']
-                ];
-            }
-
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = array_fill(0, 1, '');
-            $rows[] = array_fill(0, 1, '');
-            $allRows = array_merge($allRows, $rows);
+            \DB::commit();
+            return response()->json([
+                'success' => true,
+                'path' => Storage::url('facturas/facturas.xlsx'),
+            ], 200);
+        } catch(AuthorizationException $e) {
+            \DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
+        } catch (\Throwable $exception) {
+            \DB::rollBack();
+            return response()->json([
+                'error' => $exception->getMessage(),
+                'line' => $exception->getLine()
+            ], 500);
         }
-
-        Excel::store(new FacturasExport($headers, $allRows), 'facturas/facturas.xlsx', 'local');
-
-        return response()->json([
-            'success' => true,
-            'path' => Storage::url('facturas.xlsx')
-        ]);
     }
 
     public function hashPassword(Request $request)

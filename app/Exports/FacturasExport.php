@@ -10,7 +10,6 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Style\Color;
 
-
 class FacturasExport implements FromArray, WithStyles, WithTitle
 {
     protected $data;
@@ -37,109 +36,49 @@ class FacturasExport implements FromArray, WithStyles, WithTitle
     public function styles(Worksheet $sheet)
     {
         $columnCount = count($this->headers);
-        $lastColumn  = Coordinate::stringFromColumnIndex($columnCount);
-        $highestRow  = $sheet->getHighestRow();
+        $lastColumn = Coordinate::stringFromColumnIndex($columnCount);
+        $highestRow = count($this->data);
 
-        $titles = [
-            'Comprobante',
-            'Emisor',
-            'Receptor',
-            'Conceptos',
-            'Concepto Traslado',
-            'Impuestos',
-            'Impuesto Traslados',
-            'Complemento Timbre Fiscal Digital',
-        ];
-
-        for ($row = 1; $row <= $highestRow; $row++) {
-            for ($colIndex = 1; $colIndex <= $columnCount; $colIndex++) {
-                $colLetter = Coordinate::stringFromColumnIndex($colIndex);
-                $cellCoord = $colLetter . $row;
-                $cellValue = $sheet->getCell($cellCoord)->getValue();
-
-                if (in_array((string)$cellValue, $this->headers, true)) {
-                    $sheet->getStyle($cellCoord)->applyFromArray([
-                        'font' => ['bold' => true],
-                        'alignment' => ['horizontal' => 'center'],
-                        'fill' => [
-                            'fillType' => Fill::FILL_SOLID,
-                            'startColor' => ['argb' => 'FFE6F0FA'],
-                        ],
-                        'borders' => [
-                            'allBorders' => [
-                                'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
-                                'color' => ['argb' => 'FF000000'],
-                            ],
-                        ],
-                    ]);
-                } elseif (in_array((string)$cellValue, $titles, true)) {
-                    $span = match ((string)$cellValue) {
-                        'Comprobante' => 14,
-                        'Emisor' => 3,
-                        'Receptor' => 3,
-                        'Conceptos' => 4,
-                        'Concepto Traslado' => 5,
-                        'Impuestos' => 1,
-                        'Impuesto Traslados' => 4,
-                        'Complemento Timbre Fiscal Digital' => 7,
-                        default => 1,
-                    };
-
-                    $startColLetter = $colLetter;
-                    $endColLetter = Coordinate::stringFromColumnIndex($colIndex + $span - 1);
-                    $mergeRange = $startColLetter . $row . ':' . $endColLetter . $row;
-
-                    $sheet->mergeCells($mergeRange);
-
-                    $sheet->getStyle($mergeRange)->applyFromArray([
-                        'font' => [
-                            'bold' => true,
-                            'color' => ['argb' => Color::COLOR_WHITE]
-                        ],
-                        'alignment' => ['horizontal' => 'center', 'vertical' => 'center'],
-                        'fill' => [
-                            'fillType' => Fill::FILL_SOLID,
-                            'startColor' => ['argb' => 'FF1F4E78'],
-                        ],
-                        'borders' => [
-                            'allBorders' => [
-                                'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
-                                'color' => ['argb' => 'FF000000'],
-                            ],
-                        ],
-                    ]);
-                } elseif (!is_null($cellValue) && trim((string)$cellValue) !== '') {
-                    $sheet->getStyle($cellCoord)->applyFromArray([
-                        'fill' => [
-                            'fillType' => Fill::FILL_SOLID,
-                            'startColor' => ['argb' => 'FFFFFFFF'],
-                        ],
-                        'borders' => [
-                            'allBorders' => [
-                                'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
-                                'color' => ['argb' => 'FF000000'],
-                            ],
-                        ],
-                    ]);
-                }
-            }
-        }
-
-        $dataRange = 'A2:' . $lastColumn . (count($this->data) + 1);
-        $sheet->getStyle($dataRange)->applyFromArray([
+        $headerRange = 'A1:' . $lastColumn . '1';
+        $sheet->getStyle($headerRange)->applyFromArray([
+            'font' => [
+                'bold' => true,
+                'color' => ['argb' => Color::COLOR_WHITE]
+            ],
             'alignment' => [
                 'horizontal' => 'center',
-                'vertical' => 'center',
-                'wrapText' => false,
+                'wrapText' => true,
+            ],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FF1F4E78'],
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
+                    'color' => ['argb' => 'FF000000'],
+                ],
             ],
         ]);
 
-        $highestColumn = $sheet->getHighestColumn();
-        $columnCount = Coordinate::columnIndexFromString($highestColumn);
+        $dataRange = 'A2:' . $lastColumn . $highestRow;
+        $sheet->getStyle($dataRange)->applyFromArray([
+            'alignment' => [
+                'horizontal' => 'center',
+                'wrapText' => true,
+            ],
+            'borders' => [
+                'allBorders' => [
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
+                    'color' => ['argb' => 'FF000000'],
+                ],
+            ],
+        ]);
 
-        foreach (range(1, $columnCount) as $index) {
-            $col = Coordinate::stringFromColumnIndex($index);
-            $sheet->getColumnDimension($col)->setAutoSize(false)->setWidth(30);
+        for ($i = 1; $i <= $columnCount; $i++) {
+            $col = Coordinate::stringFromColumnIndex($i);
+            $sheet->getColumnDimension($col)->setAutoSize(false)->setWidth(40);
+            $sheet->getDefaultRowDimension()->setRowHeight(18);
         }
 
         return [];
