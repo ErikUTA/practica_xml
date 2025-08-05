@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\FacturasExport;
 use Illuminate\Support\Facades\Storage;
+use App\Models\User;
 
 class XMLController extends Controller
 {
@@ -40,6 +41,7 @@ class XMLController extends Controller
                 'TotalImpuestosTrasladados',
                 'Importe_Global', 'Impuesto_Global', 'TasaOCuota_Global', 'TipoFactor_Global',
                 'FechaTimbrado', 'NoCertificadoSAT', 'RfcProvCertif', 'SelloCFD', 'SelloSAT', 'UUID', 'Version_TFD',
+                'ModalidadServicio', 'FechaCarga', 'RFC', 'Instrumento', 'PersonalidadUsuario'
             ];
 
             $rows = [];
@@ -136,10 +138,16 @@ class XMLController extends Controller
                     $row = array_merge($row, ['', '', '', '', '', '', '']);
                 }
 
+                $row[] = (string) $request->get('ModalidadServicio');
+                $row[] = (string) $request->get('FechaCarga');
+                $row[] = (string) $request->get('RFC');
+                $row[] = (string) $request->get('Instrumento');
+                $row[] = (string) $request->get('PersonalidadUsuario');
+
                 $rows[] = $row;
             }
 
-            Excel::store(new InvoicesExport($headers, array_merge([$headers], $rows)), 'facturas/facturas.xlsx', 'local');
+            Excel::store(new FacturasExport($headers, array_merge([$headers], $rows)), 'facturas/facturas.xlsx', 'local');
 
             \DB::commit();
             return response()->json([
