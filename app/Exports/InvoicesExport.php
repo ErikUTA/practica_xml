@@ -10,7 +10,7 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Style\Color;
 
-class FacturasExport implements FromArray, WithStyles, WithTitle
+class InvoicesExport implements FromArray, WithStyles, WithTitle
 {
     protected $data;
     protected $headers;

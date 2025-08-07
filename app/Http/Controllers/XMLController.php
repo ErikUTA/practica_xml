@@ -5,19 +5,27 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\Request;
-use Maatwebsite\Excel\Facades\Excel;
-use App\Exports\FacturasExport;
-use Illuminate\Support\Facades\Storage;
 use App\Models\User;
+use App\Models\Permission;
+use App\Models\PermissionServiceUser;
+use App\Models\Xml;
+use App\Models\Service;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\InvoicesExport;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Auth;
 
 class XMLController extends Controller
 {
-    public function convertirFacturaXmlACsv(Request $request)
+    use AuthorizesRequests;
+
+    public function convertInvoiceToXml(Request $request)
     {
         \DB::beginTransaction();
         try {
-            $userId = $request->get('user_id');
-            $user = User::find($userId);
+            $user = Auth::user();
             if(!$user) {
                 return response()->json([
                     'success' => false,
@@ -28,6 +36,20 @@ class XMLController extends Controller
             $request->validate([
                 'xml_files' => 'required|array',
                 'xml_files.*' => 'file|mimes:xml',
+                'ModalidadServicio' => 'required|string',
+                'FechaCarga' => 'required|string',
+                'RFC' => 'required|string',
+                'LibroContable' => 'required|string',
+                'Instrumento' => 'required|string',
+                'PersonalidadUsuario' => 'required|string',
+            ], [
+                'xml_files.required' => 'Por favor seleccione un archivo.',
+                'ModalidadServicio.required' => 'Por favor seleccione un servicio.',
+                'FechaCarga.required' => 'Por favor seleccione una fecha.',
+                'RFC.required' => 'El RFC es requerido.',
+                'LibroContable.required' => 'El libro contable es requerido.',
+                'Instrumento.required' => 'El instrumento es requerido.',
+                'PersonalidadUsuario.required' => 'El campo Personalidad Usuario es requerido.',
             ]);
 
             $headers = [
@@ -41,16 +63,43 @@ class XMLController extends Controller
                 'TotalImpuestosTrasladados',
                 'Importe_Global', 'Impuesto_Global', 'TasaOCuota_Global', 'TipoFactor_Global',
                 'FechaTimbrado', 'NoCertificadoSAT', 'RfcProvCertif', 'SelloCFD', 'SelloSAT', 'UUID', 'Version_TFD',
-                'ModalidadServicio', 'FechaCarga', 'RFC', 'Instrumento', 'PersonalidadUsuario'
+                'ModalidadServicio', 'FechaCarga', 'RFC', 'LibroContable', 'Instrumento', 'PersonalidadUsuario'
             ];
 
             $rows = [];
+
+            $plan = PermissionServiceUser::where('user_id', $user->id)
+                ->where('service_id', Service::XMl)
+                ->first();
+
+            $limit = 0;
+
+            if($plan->permission_id === Permission::BASIC) {
+                $limit = Permission::PLAN_BASIC;
+            } elseif ($plan->permission_id === Permission::INTERMEDIATE) {
+                $limit = Permission::PLAN_INTERMEDIATE;
+            } elseif ($plan->permission_id === Permission::ADVANCED) {
+                $limit = Permission::PLAN_ADVANCED;
+            }
 
             foreach ($request->file('xml_files') as $file) {
                 $xml = simplexml_load_file($file->getRealPath());
                 if (!$xml) continue;
 
                 $namespaces = $xml->getNamespaces(true);
+                if ($xml->getName() === 'Comprobante') {
+                    $totalFacturas = 1;
+                } else {
+                    $comprobantes = $xml->xpath('//cfdi:Comprobante');
+                    $totalFacturas = count($comprobantes);
+                }
+                if ($totalFacturas > $limit) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Ha excedido el límite de facturas.',
+                    ], 500);
+                }
+
                 $cfdi = $xml->children($namespaces['cfdi']);
                 $emisor = $cfdi->Emisor ?? null;
                 $receptor = $cfdi->Receptor ?? null;
@@ -59,6 +108,7 @@ class XMLController extends Controller
                 $conceptos = $cfdi->Conceptos ?? null;
 
                 $row = [];
+                $version = (string) $xml['Version'];
 
                 $row[] = (string) $xml['Certificado'];
                 $row[] = (string) $xml['Fecha'];
@@ -73,7 +123,7 @@ class XMLController extends Controller
                 $row[] = (string) $xml['SubTotal'];
                 $row[] = (string) $xml['TipoDeComprobante'];
                 $row[] = (string) $xml['Total'];
-                $row[] = (string) $xml['Version'];
+                $row[] = $version;
 
                 $attrsEmisor = $emisor->attributes();
                 $row[] = (string) $attrsEmisor['Nombre'];
@@ -85,6 +135,13 @@ class XMLController extends Controller
                 $row[] = (string) $attrsReceptor['Rfc'];
                 $row[] = (string) $attrsReceptor['UsoCFDI'];
 
+                if(((string) $attrsReceptor['Rfc']) !== $request->get('RFC')) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'El RFC del receptor no coincide con el RFC del cliente.',
+                    ], 500);
+                }
+
                 $concepto = $conceptos->children($namespaces['cfdi']) ?? null;
                 if ($concepto) {
                     $attrsConcepto = $concepto->attributes();
@@ -93,7 +150,11 @@ class XMLController extends Controller
                     $row[] = (string) $attrsConcepto['ClaveUnidad'];
                     $row[] = (string) $attrsConcepto['Descripcion'];
 
-                    $traslado = $concepto->children($namespaces['cfdi'])->Impuestos->Traslados->children($namespaces['cfdi']) ?? null;
+                    $traslado = [];
+                    if($concepto->children($namespaces['cfdi'])->Impuestos->Traslados) {
+                        $traslado = $concepto->children($namespaces['cfdi'])->Impuestos->Traslados->children($namespaces['cfdi']) ?? null;
+                    }
+
                     if ($traslado) {
                         $a = $traslado->attributes();
                         $row[] = (string) $a['Base'];
@@ -111,7 +172,10 @@ class XMLController extends Controller
                 $attrsImp = $impuestos->attributes();
                 $row[] = (string) $attrsImp['TotalImpuestosTrasladados'];
 
-                $trasladoGlobal = $impuestos->Traslados->children($namespaces['cfdi']) ?? null;
+                $trasladoGlobal = [];
+                if($impuestos->Traslados) {
+                    $trasladoGlobal = $impuestos->Traslados->children($namespaces['cfdi']) ?? null;
+                }
 
                 if ($trasladoGlobal) {
                     $a = $trasladoGlobal->attributes();
@@ -134,6 +198,21 @@ class XMLController extends Controller
                     $row[] = (string) $a['SelloSAT'];
                     $row[] = (string) $a['UUID'];
                     $row[] = (string) $a['Version'];
+                    $uuid = (string) $a['UUID'];
+                    $exist = Xml::where('UUID', $a['UUID'])->first();
+                    if($exist) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'La factura ya ha sido leída recientemente.'
+                        ], 500);
+                    }
+                    if (Storage::disk('local')->exists("facturas/factura_{$uuid}.xlsx")) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'El archivo ya fue generado anteriormente.',
+                            'path' => Storage::url("facturas/factura_{$uuid}.xlsx")
+                        ], 500);
+                    }
                 } else {
                     $row = array_merge($row, ['', '', '', '', '', '', '']);
                 }
@@ -141,18 +220,26 @@ class XMLController extends Controller
                 $row[] = (string) $request->get('ModalidadServicio');
                 $row[] = (string) $request->get('FechaCarga');
                 $row[] = (string) $request->get('RFC');
+                $row[] = (string) $request->get('LibroContable');
                 $row[] = (string) $request->get('Instrumento');
                 $row[] = (string) $request->get('PersonalidadUsuario');
 
                 $rows[] = $row;
+
+                if (count($headers) === count($row)) {
+                    $data = array_combine($headers, $row);
+                    Xml::create($data);
+                } else {
+                    throw new \Exception('La cantidad de campos no coincide con la cantidad de valores.');
+                }
             }
 
-            Excel::store(new FacturasExport($headers, array_merge([$headers], $rows)), 'facturas/facturas.xlsx', 'local');
+            Excel::store(new InvoicesExport($headers, array_merge([$headers], $rows)), "facturas/factura_{$uuid}.xlsx", 'local');
 
             \DB::commit();
             return response()->json([
                 'success' => true,
-                'path' => Storage::url('facturas/facturas.xlsx'),
+                'path' => Storage::url("facturas/factura_{$uuid}.xlsx"),
             ], 200);
         } catch(AuthorizationException $e) {
             \DB::rollBack();
@@ -169,16 +256,14 @@ class XMLController extends Controller
         }
     }
 
-    public function hashPassword(Request $request)
+    public function getXmlServiceInformation()
     {
-        $request->validate([
-            'password' => 'required|string|min:6',
-        ]);
-
-        $hashed = Hash::make($request->password);
+        $xmlService = Service::where('id', Service::XMl)->firstOrFail();
 
         return response()->json([
-            'hashed_password' => $hashed,
-        ]);
+            'success' => true,
+            'xmlService' => $xmlService,
+        ], 200);
     }
+
 }
